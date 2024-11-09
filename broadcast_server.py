@@ -8,7 +8,7 @@ import sys
 LISTEN_HOST = '0.0.0.0'
 LISTEN_PORT = 9000
 CONFIG_FILE = 'servers.json'
-BUFFER_SIZE = 4096  # Increase buffer size to handle larger HTTP requests
+BUFFER_SIZE = 4096  # Adjust buffer size as needed
 
 # Keep track of client threads and sockets
 client_threads = []
@@ -52,38 +52,47 @@ def parse_http_request(data, client_socket):
         print(f"Error parsing HTTP request: {e}")
         return data
 
-def parse_message(data, client_socket):
-    """
-    Parse the incoming data to extract the message type and content.
-    """
-    try:
-        # Detect if data is an HTTP request
-        if data.startswith(b'GET') or data.startswith(b'POST') or data.startswith(b'PUT') or data.startswith(b'DELETE'):
-            # It's an HTTP request
-            body = parse_http_request(data, client_socket)
-            # For this example, assume the body contains JSON data
-            msg_type = 'default'
-            return msg_type, body
-        else:
-            # Try to parse as 'type|message'
-            decoded_data = data.decode('utf-8', errors='ignore')
-            if '|' in decoded_data:
-                msg_type, msg_content = decoded_data.split('|', 1)
-                msg_type = msg_type.strip().lower()
-                return msg_type, msg_content.encode('utf-8')
-            else:
-                # No '|' found, assign default message type
-                msg_type = 'default'
-                return msg_type, data
-    except Exception as e:
-        print(f"Error parsing message: {e}")
-        # Assign default message type
-        return 'default', data
-
 # Transformation functions for each type
 def transform_audio(data):
-    # TODO: Add transformation logic for 'audio' data
-    return data
+    try:
+        # Parse the JSON input
+        input_data = json.loads(data.decode('utf-8'))
+
+        # Define role to event mapping
+        role_event_mapping = {
+            "music": ":play",
+            "pause": ":pause",
+            "SeekTo": ":seek-to",
+            #TODO add more events I guess ? @neilyio
+        }
+
+        # Extract role and map to event
+        role = input_data.get("role")
+        event_name = role_event_mapping.get(role, ":unknown-event")
+
+        # Handle arguments
+        event_args = []
+        if "id" in input_data:
+            event_args.append(f":{input_data['id']}")
+        if "position" in input_data:
+            event_args.append(str(input_data["position"]))
+        # Add more argument handling as needed
+
+        # Construct the Clojure data structure
+        args_str = ' '.join(event_args)
+        if args_str:
+            clojure_data = f'[{event_name} {args_str}]'
+        else:
+            clojure_data = f'[{event_name}]'
+
+        # Encode the string into bytes
+        return clojure_data.encode('utf-8')
+
+    except Exception as e:
+        print(f"Error in transform_audio: {e}")
+        return data
+
+
 
 def transform_video(data):
     # TODO: Add transformation logic for 'video' data
@@ -93,16 +102,11 @@ def transform_lights(data):
     # TODO: Add transformation logic for 'lights' data
     return data
 
-def transform_default(data):
-    # No transformation for default data
-    return data
-
-# Mapping of message types to their corresponding transformation functions
+# Mapping of transformation functions for each server type
 TRANSFORM_FUNCTIONS = {
     'audio': transform_audio,
     'video': transform_video,
     'lights': transform_lights,
-    'default': transform_default,
 }
 
 def handle_client_connection(client_socket, client_address, server_config):
@@ -110,57 +114,52 @@ def handle_client_connection(client_socket, client_address, server_config):
     print(f"Connection from {client_address}")
     client_sockets.append(client_socket)  # Keep track of the client socket
 
-    while True:
-        try:
-            data = client_socket.recv(BUFFER_SIZE)
-            if not data:
-                print(f"Connection closed by {client_address}")
-                break
+    try:
+        data = client_socket.recv(BUFFER_SIZE)
+        if not data:
+            print(f"Connection closed by {client_address}")
+            return
 
-            # Log the received data
-            print(f"Received data from {client_address}: {data}")
+        # Log the received data
+        print(f"Received data from {client_address}: {data}")
 
-            # Parse the message to get the type and content
-            msg_type, msg_content = parse_message(data, client_socket)
+        # Check if the data is an HTTP request
+        if data.startswith(b'GET') or data.startswith(b'POST') or data.startswith(b'PUT') or data.startswith(b'DELETE'):
+            # Parse the HTTP request to get the body
+            body = parse_http_request(data, client_socket)
+            message_content = body
+        else:
+            # If not HTTP, use the raw data
+            message_content = data
 
-            # Log the message type and content
-            print(f"Message type: {msg_type}, Content: {msg_content}")
+        # For each server type, transform and send the data
+        for server_type, transform_func in TRANSFORM_FUNCTIONS.items():
+            try:
+                # Transform the data using the appropriate function
+                transformed_data = transform_func(message_content)
+                # Log the transformed data
+                print(f"Transformed data for type '{server_type}': {transformed_data}")
 
-            # Transform the data using the appropriate transformation function
-            transform_func = TRANSFORM_FUNCTIONS.get(msg_type, lambda x: x)
-            transformed_data = transform_func(msg_content)
+                server_addresses = server_config.get(server_type, [])
+                # Send transformed data to all servers of this type
+                for server_info in server_addresses:
+                    try:
+                        server_host, server_port = server_info.split(':')
+                        server_port = int(server_port)
+                        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                            s.connect((server_host, server_port))
+                            s.sendall(transformed_data)
+                            print(f"Sent transformed data to {server_host}:{server_port} for type '{server_type}'")
+                    except Exception as e:
+                        print(f"Error sending data to {server_info}: {e}")
+            except Exception as e:
+                print(f"Error processing data for server type '{server_type}': {e}")
 
-            # Log the transformed data
-            print(f"Transformed data for type '{msg_type}': {transformed_data}")
-
-            # Get server addresses for the message type
-            if msg_type in server_config:
-                server_addresses = server_config[msg_type]
-            else:
-                # If unknown message type, broadcast to all servers
-                print(f"Unknown message type '{msg_type}' from {client_address}, broadcasting to all servers.")
-                server_addresses = []
-                for addresses in server_config.values():
-                    server_addresses.extend(addresses)
-
-            # Broadcast transformed data to all servers
-            for server_info in server_addresses:
-                try:
-                    server_host, server_port = server_info.split(':')
-                    server_port = int(server_port)
-                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                        s.connect((server_host, server_port))
-                        s.sendall(transformed_data)
-                        print(f"Sent transformed data to {server_host}:{server_port} for type '{msg_type}'")
-                except Exception as e:
-                    print(f"Error sending data to {server_info}: {e}")
-
-        except Exception as e:
-            print(f"Error handling client {client_address}: {e}")
-            break
-
-    client_socket.close()
-    client_sockets.remove(client_socket)  # Remove from the list when done
+    except Exception as e:
+        print(f"Error handling client {client_address}: {e}")
+    finally:
+        client_socket.close()
+        client_sockets.remove(client_socket)  # Remove from the list when done
 
 def start_server():
     """Start the socket server and listen for connections."""
