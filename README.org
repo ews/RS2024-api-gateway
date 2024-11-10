@@ -1,0 +1,60 @@
+#+:TITLE: API Gateway for the RS 2024 thing
+
+* Prerequisites
+
+Python 3.x
+Required Python packages:
+=requests= (for sending HTTP requests to WLED servers)
+A =servers.json= configuration file containing the IP addresses and ports of your servers.
+
+* Configuration
+
+
+
+Thought for 35 seconds
+
+Certainly! Here's the content in org-mode format that you can copy and paste:
+
+Broadcast Socket Server
+This is a Python script that receives HTTP JSON requests, transforms them, and sends data to various servers such as audio, video, and lights servers. It can be used to control devices like WLED lights based on incoming data.
+
+** Prerequisites
+
+Python 3.x
+Required Python packages:
+=requests= (for sending HTTP requests to WLED servers)
+A =servers.json= configuration file containing the IP addresses and ports of your servers.
+** Installation
+
+Clone the repository or copy the script files to your local machine.
+
+Install required Python packages:
+
+#+BEGIN_SRC bash pip install requests #+END_SRC
+
+** Configuration
+
+Create a =servers.json= file in the same directory as the script. This file should contain the IP addresses and ports of your servers, organized by server type.
+
+Example =servers.json=:
+
+#+BEGIN_SRC json { "audio": [ "127.0.0.1:9100", "127.0.0.1:9101" ], "video": [ "127.0.0.1:9200", "127.0.0.1:9201" ], "lights": [ "192.168.1.100:80" ] } #+END_SRC
+
+Replace ="192.168.1.100:80"= with the IP address and port of your WLED server.
+Add or modify entries under ="audio"= and ="video"= as needed.
+
+** Changing formats
+
+the transform_audio , transform_video and transform_lights take the input from the NFC iphone server and transofmr into clojure (EDN), wled and wathever for fuck we do for audio, change it accordingly (Neil!)
+** Testing this
+*** client side
+   without the phone you can do
+   #+BEGIN_SRC bash
+   curl -X POST -d '{"id": "12"}' http://localhost:9000
+   #+END_SRC
+*** mockup servers
+    if we don't have the audio/video/wled server, we can use nc
+
+    #+begin_src bash
+       nc -l 0.0.0.0 -p 8002
+    #+end_src
