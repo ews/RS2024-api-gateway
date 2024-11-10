@@ -112,10 +112,6 @@ def transform_video(data):
     return data
 
 
-# Shared variables for keeping track of state
-last_received_id = None
-lights_lock = threading.Lock()  # Lock to ensure thread safety
-
 def transform_lights(data, server_addresses):
     """
     Transform the input data and send HTTP requests to WLED servers
