@@ -1,8 +1,11 @@
-import socket
 import threading
 import json
 import signal
 import sys
+import requests  # Ensure 'requests' is imported
+import random
+import threading
+import socket
 
 # Configuration
 LISTEN_HOST = '0.0.0.0'
@@ -19,6 +22,10 @@ last_received_id = None
 current_pattern_index = 0
 pattern_list = [0, 1, 2, 3, 4, 5]  # Define the list of patterns you want to cycle through
 lights_lock = threading.Lock()  # Lock to ensure thread safety
+#
+## Healthcheck Ping URL
+HEALTHCHECK_URL = 'https://hc-ping.com/364f22b0-20c9-4cbc-ba77-b35bd4efb164'
+
 
 def load_server_addresses(config_file):
     """Load server addresses from the JSON configuration file."""
@@ -283,6 +290,16 @@ def handle_client_connection(client_socket, client_address, server_config):
 
         # Log the received data
         print(f"Received data from {client_address}: {data}")
+
+        # Send a request to the health check URL
+        try:
+            hc_response = requests.get(HEALTHCHECK_URL)
+            if hc_response.status_code == 200:
+                print("Successfully pinged health check URL.")
+            else:
+                print(f"Health check URL responded with status code {hc_response.status_code}")
+        except Exception as e:
+            print(f"Error sending health check ping: {e}")
 
         # Check if the data is an HTTP request
         if data.startswith(b'GET') or data.startswith(b'POST') or data.startswith(b'PUT') or data.startswith(b'DELETE'):
