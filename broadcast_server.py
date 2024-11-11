@@ -106,7 +106,7 @@ def transform_audio(data):
         return data
 
 
-
+## TODO nothing happens here I think ? FIXME @pablo
 def transform_video(data):
     # TODO: Add transformation logic for 'video' data
     return data
@@ -175,7 +175,8 @@ def transform_lights(data, server_addresses):
                         url = f'http://{WLED_IP}:{WLED_PORT}/json/state'
 
                         # Send the HTTP POST request to the WLED server
-                        response = requests.post(url, json=payload)
+#                        response = requests.post(url, json=payload)
+                        response = requests.post(url, json=payload, timeout=1)  # Timeout after 5 seconds
 
                         if response.status_code == 200:
                             print(f"Successfully changed WLED effect to {effect_id} with color RGB({color_r}, {color_g}, {color_b}) on {WLED_IP}:{WLED_PORT}")
