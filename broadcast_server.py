@@ -97,6 +97,7 @@ def transform_audio(data):
             clojure_data = f'[{event_name} {args_str}]'
         else:
             clojure_data = f'[{event_name}]'
+        print("sending this to Neils event", clojure_data.encode('utf-8'))
 
         # Encode the string into bytes
         return clojure_data.encode('utf-8')
