@@ -8,9 +8,9 @@ import threading
 import socket
 
 # Configuration
-LISTEN_HOST = '0.0.0.0'
+LISTEN_HOST = "0.0.0.0"
 LISTEN_PORT = 9000
-CONFIG_FILE = 'servers.json'
+CONFIG_FILE = "servers.json"
 BUFFER_SIZE = 4096  # Adjust buffer size as needed
 
 # Keep track of client threads and sockets
@@ -20,41 +20,49 @@ client_sockets = []
 # Shared variables for keeping track of WLED lights state
 last_received_id = None
 current_pattern_index = 0
-pattern_list = [0, 1, 2, 3, 4, 5]  # Define the list of patterns you want to cycle through
+pattern_list = [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+]  # Define the list of patterns you want to cycle through
 lights_lock = threading.Lock()  # Lock to ensure thread safety
 #
 ## Healthcheck Ping URL
-HEALTHCHECK_URL = 'https://hc-ping.com/364f22b0-20c9-4cbc-ba77-b35bd4efb164'
+HEALTHCHECK_URL = "https://hc-ping.com/364f22b0-20c9-4cbc-ba77-b35bd4efb164"
 
 
 def load_server_addresses(config_file):
     """Load server addresses from the JSON configuration file."""
     try:
-        with open(config_file, 'r') as f:
+        with open(config_file, "r") as f:
             config = json.load(f)
         return config
     except Exception as e:
         print(f"Error reading config file: {e}")
         return {}
 
+
 def parse_http_request(data, client_socket):
     """
     Parse an HTTP request and extract the message body.
     """
     try:
-        decoded_data = data.decode('utf-8', errors='ignore')
-        headers, _, body = decoded_data.partition('\r\n\r\n')
-        header_lines = headers.split('\r\n')
+        decoded_data = data.decode("utf-8", errors="ignore")
+        headers, _, body = decoded_data.partition("\r\n\r\n")
+        header_lines = headers.split("\r\n")
         first_line = header_lines[0]
         method, path, http_version = first_line.split()
         # Extract Content-Length
         content_length = 0
         for line in header_lines[1:]:
-            if line.lower().startswith('content-length:'):
-                content_length = int(line.split(':', 1)[1].strip())
+            if line.lower().startswith("content-length:"):
+                content_length = int(line.split(":", 1)[1].strip())
                 break
         # Read the remaining data if necessary
-        body_bytes = body.encode('utf-8')
+        body_bytes = body.encode("utf-8")
         while len(body_bytes) < content_length:
             more_data = client_socket.recv(BUFFER_SIZE)
             if not more_data:
@@ -65,18 +73,19 @@ def parse_http_request(data, client_socket):
         print(f"Error parsing HTTP request: {e}")
         return data
 
+
 # Transformation functions for each type
 def transform_audio(data):
     try:
         # Parse the JSON input
-        input_data = json.loads(data.decode('utf-8'))
+        input_data = json.loads(data.decode("utf-8"))
 
         # Define role to event mapping
         role_event_mapping = {
-            "music": ":play",
+            "music": ":location",
             "pause": ":pause",
             "SeekTo": ":seek-to",
-            #TODO add more events I guess ? @neilyio
+            # TODO add more events I guess ? @neilyio
         }
 
         # Extract role and map to event
@@ -92,15 +101,15 @@ def transform_audio(data):
         # Add more argument handling as needed
 
         # Construct the Clojure data structure
-        args_str = ' '.join(event_args)
+        args_str = " ".join(event_args)
         if args_str:
-            clojure_data = f'[{event_name} {args_str}]'
+            clojure_data = f"[{event_name} {args_str}]"
         else:
-            clojure_data = f'[{event_name}]'
-        print("sending this to Neils event", clojure_data.encode('utf-8'))
+            clojure_data = f"[{event_name}]"
+        print("sending this to Neils event", clojure_data.encode("utf-8"))
 
         # Encode the string into bytes
-        return clojure_data.encode('utf-8')
+        return clojure_data.encode("utf-8")
 
     except Exception as e:
         print(f"Error in transform_audio: {e}")
@@ -122,17 +131,17 @@ def transform_lights(data, server_addresses):
 
     try:
         # Parse the JSON input
-        input_data = json.loads(data.decode('utf-8'))
+        input_data = json.loads(data.decode("utf-8"))
 
         # Extract the 'id' field from the input data
-        received_id = input_data.get('id')
+        received_id = input_data.get("id")
         if received_id is None:
             print("No 'id' field found in the data.")
-            return b''  # Return empty bytes as there's nothing to send
+            return b""  # Return empty bytes as there's nothing to send
 
         if not server_addresses:
             print("No lights servers configured.")
-            return b''
+            return b""
 
         # Use the lock to ensure thread safety when accessing shared variables
         with lights_lock:
@@ -153,58 +162,69 @@ def transform_lights(data, server_addresses):
                 payload = {
                     "on": True,
                     "bri": 255,  # Maximum brightness
-                    "seg": [{
-                        "id": 0,
-                        "fx": effect_id,
-                        "sx": random.randint(0, 255),  # Effect speed
-                        "ix": random.randint(0, 255),  # Effect intensity
-                        "col": [
-                            [color_r, color_g, color_b],  # Primary color
-                            [0, 0, 0],                    # Secondary color
-                            [0, 0, 0]                     # Tertiary color
-                        ]
-                    }]
+                    "seg": [
+                        {
+                            "id": 0,
+                            "fx": effect_id,
+                            "sx": random.randint(0, 255),  # Effect speed
+                            "ix": random.randint(0, 255),  # Effect intensity
+                            "col": [
+                                [color_r, color_g, color_b],  # Primary color
+                                [0, 0, 0],  # Secondary color
+                                [0, 0, 0],  # Tertiary color
+                            ],
+                        }
+                    ],
                 }
 
                 # Send the HTTP request to each WLED server
                 for wled_address in server_addresses:
                     try:
-                        WLED_IP, WLED_PORT = wled_address.split(':')
+                        WLED_IP, WLED_PORT = wled_address.split(":")
                         WLED_PORT = int(WLED_PORT)
 
                         # Prepare the request to the WLED server
-                        url = f'http://{WLED_IP}:{WLED_PORT}/json/state'
+                        url = f"http://{WLED_IP}:{WLED_PORT}/json/state"
 
                         # Send the HTTP POST request to the WLED server
-#                        response = requests.post(url, json=payload)
-                        response = requests.post(url, json=payload, timeout=1)  # Timeout after 5 seconds
+                        #                        response = requests.post(url, json=payload)
+                        response = requests.post(
+                            url, json=payload, timeout=1
+                        )  # Timeout after 5 seconds
 
                         if response.status_code == 200:
-                            print(f"Successfully changed WLED effect to {effect_id} with color RGB({color_r}, {color_g}, {color_b}) on {WLED_IP}:{WLED_PORT}")
+                            print(
+                                f"Successfully changed WLED effect to {effect_id} with color RGB({color_r}, {color_g}, {color_b}) on {WLED_IP}:{WLED_PORT}"
+                            )
                         else:
-                            print(f"Failed to change WLED effect on {WLED_IP}:{WLED_PORT}. Status code: {response.status_code}")
+                            print(
+                                f"Failed to change WLED effect on {WLED_IP}:{WLED_PORT}. Status code: {response.status_code}"
+                            )
                     except Exception as e:
-                        print(f"Error sending request to WLED server {wled_address}: {e}")
+                        print(
+                            f"Error sending request to WLED server {wled_address}: {e}"
+                        )
             else:
-                print(f"Received ID '{received_id}' is the same as the last one. No pattern change.")
+                print(
+                    f"Received ID '{received_id}' is the same as the last one. No pattern change."
+                )
                 # No action needed as the ID is the same
 
         # Since we've handled the action, return empty bytes
-        return b''
+        return b""
 
     except Exception as e:
         print(f"Error in transform_lights: {e}")
-        return b''  # Return empty bytes on error
-
-
+        return b""  # Return empty bytes on error
 
 
 # Mapping of transformation functions for each server type
 TRANSFORM_FUNCTIONS = {
-    'audio': transform_audio,
-    'video': transform_video,
-    'lights': transform_lights,
+    "audio": transform_audio,
+    "video": transform_video,
+    "lights": transform_lights,
 }
+
 
 def handle_client_connection(client_socket, client_address, server_config):
     """Handle incoming client connections and broadcast data."""
@@ -226,12 +246,19 @@ def handle_client_connection(client_socket, client_address, server_config):
             if hc_response.status_code == 200:
                 print("Successfully pinged health check URL.")
             else:
-                print(f"Health check URL responded with status code {hc_response.status_code}")
+                print(
+                    f"Health check URL responded with status code {hc_response.status_code}"
+                )
         except Exception as e:
             print(f"Error sending health check ping: {e}")
 
         # Check if the data is an HTTP request
-        if data.startswith(b'GET') or data.startswith(b'POST') or data.startswith(b'PUT') or data.startswith(b'DELETE'):
+        if (
+            data.startswith(b"GET")
+            or data.startswith(b"POST")
+            or data.startswith(b"PUT")
+            or data.startswith(b"DELETE")
+        ):
             # Parse the HTTP request to get the body
             body = parse_http_request(data, client_socket)
             message_content = body
@@ -244,7 +271,7 @@ def handle_client_connection(client_socket, client_address, server_config):
             try:
 
                 server_addresses = server_config.get(server_type, [])
-                if server_type == 'lights':
+                if server_type == "lights":
                     transformed_data = transform_func(message_content, server_addresses)
                 else:
                     transformed_data = transform_func(message_content)
@@ -254,12 +281,14 @@ def handle_client_connection(client_socket, client_address, server_config):
                 # Send transformed data to all servers of this type
                 for server_info in server_addresses:
                     try:
-                        server_host, server_port = server_info.split(':')
+                        server_host, server_port = server_info.split(":")
                         server_port = int(server_port)
                         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                             s.connect((server_host, server_port))
                             s.sendall(transformed_data)
-                            print(f"Sent transformed data to {server_host}:{server_port} for type '{server_type}'")
+                            print(
+                                f"Sent transformed data to {server_host}:{server_port} for type '{server_type}'"
+                            )
                     except Exception as e:
                         print(f"Error sending data to {server_info}: {e}")
             except Exception as e:
@@ -270,6 +299,7 @@ def handle_client_connection(client_socket, client_address, server_config):
     finally:
         client_socket.close()
         client_sockets.remove(client_socket)  # Remove from the list when done
+
 
 def start_server():
     """Start the socket server and listen for connections."""
@@ -305,7 +335,7 @@ def start_server():
             client_sock, client_addr = server_socket.accept()
             client_handler = threading.Thread(
                 target=handle_client_connection,
-                args=(client_sock, client_addr, server_config)
+                args=(client_sock, client_addr, server_config),
             )
             client_handler.start()
             client_threads.append(client_handler)
@@ -315,5 +345,6 @@ def start_server():
         print("Closing server socket.")
         server_socket.close()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     start_server()
