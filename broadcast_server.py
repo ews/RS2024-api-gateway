@@ -95,7 +95,7 @@ def transform_audio(data):
         # Handle arguments
         event_args = []
         if "id" in input_data:
-            event_args.append(f":{input_data['id']}")
+            event_args.append(f"{input_data['id']}")
         if "position" in input_data:
             event_args.append(str(input_data["position"]))
         # Add more argument handling as needed
