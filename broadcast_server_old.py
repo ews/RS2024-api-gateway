@@ -4,11 +4,9 @@ import signal
 import sys
 import requests  # Ensure 'requests' is imported
 import random
+import threading
 import socket
 import logging
-from concurrent.futures import ThreadPoolExecutor
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
 # Configuration
 LISTEN_HOST = '0.0.0.0'
@@ -16,25 +14,23 @@ LISTEN_PORT = 9000
 CONFIG_FILE = 'servers.json'
 BUFFER_SIZE = 4096  # Adjust buffer size as needed
 
-# Healthcheck Ping URL
+# Keep track of client threads and sockets
+client_threads = []
+client_sockets = []
+
+# Shared variables for keeping track of WLED lights state
+last_received_id = None
+current_pattern_index = 0
+pattern_list = [0, 1, 2, 3, 4, 5]  # Define the list of patterns you want to cycle through
+lights_lock = threading.Lock()  # Lock to ensure thread safety
+#
+## Healthcheck Ping URL
 HEALTHCHECK_URL = 'https://hc-ping.com/364f22b0-20c9-4cbc-ba77-b35bd4efb164'
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 
-# Initialize a thread pool for asynchronous HTTP requests
-executor = ThreadPoolExecutor(max_workers=10)
-
-# Shared variables for keeping track of WLED lights state
-last_received_id = None
-current_combination_index = 0
-effect_list = []  # To be populated with available effect IDs
-combination_list = []  # List of 60 color-effect combinations
-lights_lock = threading.Lock()  # Lock to ensure thread safety
-
-# Keep track of client threads and sockets
-client_threads = []
-client_sockets = []
 
 def send_wled_request(wled_address, payload):
     """
@@ -72,6 +68,7 @@ def send_wled_request(wled_address, payload):
     except Exception as e:
         logging.error(f"Unexpected error sending request to WLED server {wled_address}: {e}")
 
+
 def load_server_addresses(config_file):
     """Load server addresses from the JSON configuration file."""
     try:
@@ -79,7 +76,7 @@ def load_server_addresses(config_file):
             config = json.load(f)
         return config
     except Exception as e:
-        logging.error(f"Error reading config file: {e}")
+        print(f"Error reading config file: {e}")
         return {}
 
 def parse_http_request(data, client_socket):
@@ -107,7 +104,7 @@ def parse_http_request(data, client_socket):
             body_bytes += more_data
         return body_bytes
     except Exception as e:
-        logging.error(f"Error parsing HTTP request: {e}")
+        print(f"Error parsing HTTP request: {e}")
         return data
 
 # Transformation functions for each type
@@ -121,7 +118,7 @@ def transform_audio(data):
             "music": ":play",
             "pause": ":pause",
             "SeekTo": ":seek-to",
-            # TODO: add more events as needed
+            #TODO add more events I guess ? @neilyio
         }
 
         # Extract role and map to event
@@ -142,30 +139,36 @@ def transform_audio(data):
             clojure_data = f'[{event_name} {args_str}]'
         else:
             clojure_data = f'[{event_name}]'
-        logging.info(f"Sending this to Neils event: {clojure_data.encode('utf-8')}")
+        print("sending this to Neils event", clojure_data.encode('utf-8'))
 
         # Encode the string into bytes
         return clojure_data.encode('utf-8')
 
     except Exception as e:
-        logging.error(f"Error in transform_audio: {e}")
+        print(f"Error in transform_audio: {e}")
         return data
 
-# TODO: Add transformation logic for 'video' data
+
+## TODO nothing happens here I think ? FIXME @pablo
 def transform_video(data):
-    # Example transformation: simply return the data as is
+    # TODO: Add transformation logic for 'video' data
     return data
+
+
+# Shared variables for keeping track of state for WLED shit
+last_received_id = None
+current_effect_index = 0
+effect_list = []  # To be populated with available effect IDs
+lights_lock = threading.Lock()  # Lock to ensure thread safety
+
+
 
 def fetch_available_effects(server_addresses):
     """
     Fetch available effects from the first WLED server in the list.
     Populate the global effect_list with effect IDs.
-    Also, generate the combination_list with 60 color-effect combinations.
     """
     global effect_list
-    global combination_list
-    global current_combination_index
-
     if not server_addresses:
         logging.error("No lights servers configured.")
         return
@@ -207,148 +210,94 @@ def fetch_available_effects(server_addresses):
             logging.error(f"Unexpected effects JSON structure from {wled_address}: {effects_json}")
             return
 
-        # After fetching effects, generate the combination_list
-        if len(effect_list) < 60:
-            logging.warning(f"Effect list has {len(effect_list)} effects, which is less than 60. Some effects will be reused.")
+    except Exception as e:
+        logging.error(f"Error fetching effects from WLED server {wled_address}: {e}")
 
-        # Define 30 harmonious predefined colors
-        predefined_colors = [
-            (255, 0, 0),       # Red
-            (0, 255, 0),       # Green
-            (0, 0, 255),       # Blue
-            (255, 255, 0),     # Yellow
-            (255, 0, 255),     # Magenta
-            (0, 255, 255),     # Cyan
-            (192, 192, 192),   # Silver
-            (128, 0, 0),       # Maroon
-            (128, 128, 0),     # Olive
-            (0, 128, 0),       # Dark Green
-            (128, 0, 128),     # Purple
-            (0, 128, 128),     # Teal
-            (0, 0, 128),       # Navy
-            (255, 165, 0),     # Orange
-            (255, 192, 203),   # Pink
-            (128, 0, 255),     # Indigo
-            (75, 0, 130),      # Indigo
-            (173, 255, 47),    # Green Yellow
-            (34, 139, 34),     # Forest Green
-            (255, 20, 147),    # Deep Pink
-            (255, 69, 0),      # Orange Red
-            (0, 100, 0),       # Dark Green
-            (255, 215, 0),     # Gold
-            (0, 255, 127),     # Spring Green
-            (255, 105, 180),   # Hot Pink
-            (139, 69, 19),     # Saddle Brown
-            (240, 230, 140),   # Khaki
-            (154, 205, 50),    # Yellow Green
-            (255, 127, 80),    # Coral
-            (0, 191, 255),     # Deep Sky Blue
-            (34, 139, 34),     # Forest Green
-        ]
+def transform_lights(data, server_addresses):
+    """
+    Transform the input data and send HTTP requests to WLED servers
+    to change the light pattern and color randomly or sequentially
+    whenever a new (different) ID is received.
+    """
+    global last_received_id, current_effect_index, effect_list
 
-        # Generate additional predefined colors to reach 30 if necessary
-        while len(predefined_colors) < 30:
-            predefined_colors.append((
-                random.randint(0,255),
-                random.randint(0,255),
-                random.randint(0,255)
-            ))
+    try:
+        # Parse the JSON input
+        input_data = json.loads(data.decode('utf-8'))
 
-        # Generate 30 random colors
-        random_colors = [
-            (random.randint(0,255), random.randint(0,255), random.randint(0,255))
-            for _ in range(30)
-        ]
+        # Extract the 'id' field from the input data
+        received_id = input_data.get('id')
+        if received_id is None:
+            logging.warning("No 'id' field found in the data.")
+            return b''  # Return empty bytes as there's nothing to send
 
-        # Combine predefined and random colors
-        combined_colors = predefined_colors[:30] + random_colors[:30]
-
-        # Shuffle to mix predefined and random colors
-        random.shuffle(combined_colors)
-
-        # Generate 60 combinations
-        combination_list = []
-        for i in range(60):
-            fx = effect_list[i % len(effect_list)]
-            color = combined_colors[i]
-            combination_list.append({"fx": fx, "color": color})
-
-        # Reset the current combination index
-        current_combination_index = 0
-
-        logging.info("Generated 60 color-effect combinations.")
-
-    def transform_lights(data, server_addresses):
-        """
-        Transform the input data and send HTTP requests to WLED servers
-        to change the light pattern and color based on 60 unique combinations.
-        """
-        global last_received_id, current_combination_index, combination_list
-
-        try:
-            # Parse the JSON input
-            input_data = json.loads(data.decode('utf-8'))
-
-            # Extract the 'id' field from the input data
-            received_id = input_data.get('id')
-            if received_id is None:
-                logging.warning("No 'id' field found in the data.")
-                return b''  # Return empty bytes as there's nothing to send
-
-            if not server_addresses:
-                logging.warning("No lights servers configured.")
-                return b''
-
-            # Use the lock to ensure thread safety when accessing shared variables
-            with lights_lock:
-                if received_id != last_received_id:
-                    # New ID received; change the effect and color
-                    last_received_id = received_id
-
-                    # Select the next combination
-                    combination = combination_list[current_combination_index]
-                    fx = combination['fx']
-                    color = combination['color']
-
-                    # Update the combination index
-                    current_combination_index = (current_combination_index + 1) % len(combination_list)
-
-                    # Prepare the JSON payload for the WLED API
-                    payload = {
-                        "on": True,
-                        "bri": 255,  # Maximum brightness
-                        "seg": [{
-                            "id": 0,
-                            "fx": fx,
-                            "sx": random.randint(0, 255),  # Effect speed
-                            "ix": random.randint(0, 255),  # Effect intensity
-                            "col": [
-                                [color[0], color[1], color[2]],  # Primary color
-                                [0, 0, 0],                        # Secondary color
-                                [0, 0, 0]                         # Tertiary color
-                            ]
-                        }]
-                    }
-
-                    # Log the selected effect and color
-                    logging.info(f"Selected Effect ID: {fx}, Color RGB({color[0]}, {color[1]}, {color[2]})")
-
-                    # Submit tasks to the thread pool for asynchronous execution
-                    for wled_address in server_addresses:
-                        executor.submit(send_wled_request, wled_address, payload)
-                else:
-                    logging.info(f"Received ID '{received_id}' is the same as the last one. No pattern change.")
-                    # No action needed as the ID is the same
-
-            # Since we've handled the action, return empty bytes
+        if not server_addresses:
+            logging.warning("No lights servers configured.")
             return b''
 
-        except json.JSONDecodeError:
-            logging.error(f"Invalid JSON received: {data}")
-            return b''  # Return empty bytes on error
-        except Exception as e:
-            logging.error(f"Error in transform_lights: {e}")
-            return b''  # Return empty bytes on error
+        # Initialize effect list if empty
+        with lights_lock:
+            if not effect_list:
+                fetch_available_effects(server_addresses)
+                if not effect_list:
+                    logging.error("No effects available. Cannot change WLED patterns.")
+                    return b''
+
+        # Use the lock to ensure thread safety when accessing shared variables
+        with lights_lock:
+            if received_id != last_received_id:
+                # New ID received; change the effect and color
+                last_received_id = received_id
+
+                # Select the next effect (cycling through the list)
+                effect_id = effect_list[current_effect_index]
+                current_effect_index = (current_effect_index + 1) % len(effect_list)
+
+                # Alternatively, to select a random effect, uncomment the following line:
+                # effect_id = random.choice(effect_list)
+
+                # Randomly generate RGB values (0-255)
+                color_r = random.randint(0, 255)
+                color_g = random.randint(0, 255)
+                color_b = random.randint(0, 255)
+
+                # Prepare the JSON payload for the WLED API
+                payload = {
+                    "on": True,
+                    "bri": 255,  # Maximum brightness
+                    "seg": [{
+                        "id": 0,
+                        "fx": effect_id,
+                        "sx": random.randint(0, 255),  # Effect speed
+                        "ix": random.randint(0, 255),  # Effect intensity
+                        "col": [
+                            [color_r, color_g, color_b],  # Primary color
+                            [0, 0, 0],                    # Secondary color
+                            [0, 0, 0]                     # Tertiary color
+                        ]
+                    }]
+                }
+
+                # Log the selected effect and color
+                logging.info(f"Selected Effect ID: {effect_id}, Color RGB({color_r}, {color_g}, {color_b})")
+
+                # Submit tasks to the thread pool for asynchronous execution
+                for wled_address in server_addresses:
+                    executor.submit(send_wled_request, wled_address, payload)
+            else:
+                logging.info(f"Received ID '{received_id}' is the same as the last one. No pattern change.")
+                # No action needed as the ID is the same
+
+        # Since we've handled the action, return empty bytes
+        return b''
+
+    except json.JSONDecodeError:
+        logging.error(f"Invalid JSON received: {data}")
+        return b''  # Return empty bytes on error
+    except Exception as e:
+        logging.error(f"Error in transform_lights: {e}")
+        return b''  # Return empty bytes on error
+
 
 # Mapping of transformation functions for each server type
 TRANSFORM_FUNCTIONS = {
@@ -359,27 +308,27 @@ TRANSFORM_FUNCTIONS = {
 
 def handle_client_connection(client_socket, client_address, server_config):
     """Handle incoming client connections and broadcast data."""
-    logging.info(f"Connection from {client_address}")
+    print(f"Connection from {client_address}")
     client_sockets.append(client_socket)  # Keep track of the client socket
 
     try:
         data = client_socket.recv(BUFFER_SIZE)
         if not data:
-            logging.info(f"Connection closed by {client_address}")
+            print(f"Connection closed by {client_address}")
             return
 
         # Log the received data
-        logging.info(f"Received data from {client_address}: {data}")
+        print(f"Received data from {client_address}: {data}")
 
         # Send a request to the health check URL
         try:
-            hc_response = requests.get(HEALTHCHECK_URL, timeout=5)
+            hc_response = requests.get(HEALTHCHECK_URL)
             if hc_response.status_code == 200:
-                logging.info("Successfully pinged health check URL.")
+                print("Successfully pinged health check URL.")
             else:
-                logging.error(f"Health check URL responded with status code {hc_response.status_code}")
+                print(f"Health check URL responded with status code {hc_response.status_code}")
         except Exception as e:
-            logging.error(f"Error sending health check ping: {e}")
+            print(f"Error sending health check ping: {e}")
 
         # Check if the data is an HTTP request
         if data.startswith(b'GET') or data.startswith(b'POST') or data.startswith(b'PUT') or data.startswith(b'DELETE'):
@@ -393,18 +342,14 @@ def handle_client_connection(client_socket, client_address, server_config):
         # For each server type, transform and send the data
         for server_type, transform_func in TRANSFORM_FUNCTIONS.items():
             try:
+
                 server_addresses = server_config.get(server_type, [])
-                # Transform the data using the appropriate function
                 if server_type == 'lights':
                     transformed_data = transform_func(message_content, server_addresses)
                 else:
                     transformed_data = transform_func(message_content)
                 # Log the transformed data
-                logging.info(f"Transformed data for type '{server_type}': {transformed_data}")
-
-                # If the transformed data is empty, skip sending
-                if not transformed_data:
-                    continue
+                print(f"Transformed data for type '{server_type}': {transformed_data}")
 
                 # Send transformed data to all servers of this type
                 for server_info in server_addresses:
@@ -414,14 +359,14 @@ def handle_client_connection(client_socket, client_address, server_config):
                         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                             s.connect((server_host, server_port))
                             s.sendall(transformed_data)
-                            logging.info(f"Sent transformed data to {server_host}:{server_port} for type '{server_type}'")
+                            print(f"Sent transformed data to {server_host}:{server_port} for type '{server_type}'")
                     except Exception as e:
-                        logging.error(f"Error sending data to {server_info}: {e}")
+                        print(f"Error sending data to {server_info}: {e}")
             except Exception as e:
-                logging.error(f"Error processing data for server type '{server_type}': {e}")
+                print(f"Error processing data for server type '{server_type}': {e}")
 
     except Exception as e:
-        logging.error(f"Error handling client {client_address}: {e}")
+        print(f"Error handling client {client_address}: {e}")
     finally:
         client_socket.close()
         client_sockets.remove(client_socket)  # Remove from the list when done
@@ -476,6 +421,8 @@ def start_server():
     finally:
         logging.info("Closing server socket.")
         server_socket.close()
+
+
 
 if __name__ == '__main__':
     start_server()
