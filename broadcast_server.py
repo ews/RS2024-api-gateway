@@ -160,7 +160,7 @@ def transform_music(data):
         return clojure_data.encode("utf-8")
 
     except Exception as e:
-        logging.error(f"Error in transform_audio: {e}")
+        logging.error(f"Error in transform_music: {e}")
         return data
 
 
