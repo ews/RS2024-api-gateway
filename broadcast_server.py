@@ -123,7 +123,7 @@ def parse_http_request(data, client_socket):
 
 
 # Transformation functions for each type
-def transform_music(data):
+def transform_music(data, server_addresses):
     try:
         # Parse the JSON input
         input_data = json.loads(data.decode("utf-8"))
@@ -164,45 +164,46 @@ def transform_music(data):
         return data
 
 
-def transform_video(data):
+def transform_video(data, server_addresses):
     """
     Transform the input data and send an HTTP POST request to the video servers
     using the 'requests' library with proper headers and payload.
     """
     try:
         # Parse the JSON input
-        input_data = json.loads(data.decode('utf-8'))
+        input_data = json.loads(data.decode("utf-8"))
 
         endpoint = ""
-        headers = {
-            "Content-Type": "application/json"
-        }
+        headers = {"Content-Type": "application/json"}
 
         # Construct the full URL for each video server
         for server_info in server_addresses:
             try:
-                url = f"http://192.168.0.212:8002"  #FUCK IT!!!!
+                url = f"http://192.168.0.212:8002"  # FUCK IT!!!!
 
                 # Send the POST request using 'requests'
-                response = requests.post(url, headers=headers, json=input_data, timeout=5)
+                response = requests.post(
+                    url, headers=headers, json=input_data, timeout=5
+                )
 
                 # Raise an exception for bad status codes
                 response.raise_for_status()
 
-                logging.info(f"Successfully sent data to video server {server_host}:{server_port}. Response: {response.status_code}")
+                logging.info(
+                    f"Successfully sent data to video server {server_host}:{server_port}. Response: {response.status_code}"
+                )
             except requests.exceptions.RequestException as e:
                 logging.error(f"Error sending data to video server {server_info}: {e}")
 
         # Since the action is complete, return an empty byte string
-        return b''
+        return b""
 
     except json.JSONDecodeError:
         logging.error(f"Invalid JSON received for video server: {data}")
-        return b''
+        return b""
     except Exception as e:
         logging.error(f"Error in transform_video: {e}")
-        return b''
-
+        return b""
 
 
 def fetch_available_effects(server_addresses):
@@ -491,10 +492,7 @@ def handle_client_connection(client_socket, client_address, server_config):
             try:
                 server_addresses = server_config.get(server_type, [])
                 # Transform the data using the appropriate function
-                if server_type == "lights":
-                    transformed_data = transform_func(message_content, server_addresses)
-                else:
-                    transformed_data = transform_func(message_content)
+                transformed_data = transform_func(message_content, server_addresses)
                 # Log the transformed data
                 logging.info(
                     f"Transformed data for type '{server_type}': {transformed_data}"
