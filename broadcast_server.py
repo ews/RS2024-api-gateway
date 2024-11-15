@@ -151,7 +151,6 @@ def transform_audio(data):
         logging.error(f"Error in transform_audio: {e}")
         return data
 
-# TODO: Add transformation logic for 'video' data
 def transform_video(data):
     # Example transformation: simply return the data as is
     return data
@@ -266,6 +265,14 @@ def fetch_available_effects(server_addresses):
         # Shuffle to mix predefined and random colors
         random.shuffle(combined_colors)
 
+        # Ensure we have exactly 60 colors
+        if len(combined_colors) < 60:
+            # Pad with random colors if needed
+            combined_colors += [
+                (random.randint(0,255), random.randint(0,255), random.randint(0,255))
+                for _ in range(60 - len(combined_colors))
+            ]
+
         # Generate 60 combinations
         combination_list = []
         for i in range(60):
@@ -278,77 +285,84 @@ def fetch_available_effects(server_addresses):
 
         logging.info("Generated 60 color-effect combinations.")
 
-    def transform_lights(data, server_addresses):
-        """
-        Transform the input data and send HTTP requests to WLED servers
-        to change the light pattern and color based on 60 unique combinations.
-        """
-        global last_received_id, current_combination_index, combination_list
+    except json.JSONDecodeError:
+        logging.error(f"Invalid JSON received: {data}")
+        return b''  # Return empty bytes on error
+    except Exception as e:
+        logging.error(f"Error in transform_lights: {e}")
+        return b''  # Return empty bytes on error
 
-        try:
-            # Parse the JSON input
-            input_data = json.loads(data.decode('utf-8'))
+def transform_lights(data, server_addresses):
+    """
+    Transform the input data and send HTTP requests to WLED servers
+    to change the light pattern and color based on 60 unique combinations.
+    """
+    global last_received_id, current_combination_index, combination_list
 
-            # Extract the 'id' field from the input data
-            received_id = input_data.get('id')
-            if received_id is None:
-                logging.warning("No 'id' field found in the data.")
-                return b''  # Return empty bytes as there's nothing to send
+    try:
+        # Parse the JSON input
+        input_data = json.loads(data.decode('utf-8'))
 
-            if not server_addresses:
-                logging.warning("No lights servers configured.")
-                return b''
+        # Extract the 'id' field from the input data
+        received_id = input_data.get('id')
+        if received_id is None:
+            logging.warning("No 'id' field found in the data.")
+            return b''  # Return empty bytes as there's nothing to send
 
-            # Use the lock to ensure thread safety when accessing shared variables
-            with lights_lock:
-                if received_id != last_received_id:
-                    # New ID received; change the effect and color
-                    last_received_id = received_id
-
-                    # Select the next combination
-                    combination = combination_list[current_combination_index]
-                    fx = combination['fx']
-                    color = combination['color']
-
-                    # Update the combination index
-                    current_combination_index = (current_combination_index + 1) % len(combination_list)
-
-                    # Prepare the JSON payload for the WLED API
-                    payload = {
-                        "on": True,
-                        "bri": 255,  # Maximum brightness
-                        "seg": [{
-                            "id": 0,
-                            "fx": fx,
-                            "sx": random.randint(0, 255),  # Effect speed
-                            "ix": random.randint(0, 255),  # Effect intensity
-                            "col": [
-                                [color[0], color[1], color[2]],  # Primary color
-                                [0, 0, 0],                        # Secondary color
-                                [0, 0, 0]                         # Tertiary color
-                            ]
-                        }]
-                    }
-
-                    # Log the selected effect and color
-                    logging.info(f"Selected Effect ID: {fx}, Color RGB({color[0]}, {color[1]}, {color[2]})")
-
-                    # Submit tasks to the thread pool for asynchronous execution
-                    for wled_address in server_addresses:
-                        executor.submit(send_wled_request, wled_address, payload)
-                else:
-                    logging.info(f"Received ID '{received_id}' is the same as the last one. No pattern change.")
-                    # No action needed as the ID is the same
-
-            # Since we've handled the action, return empty bytes
+        if not server_addresses:
+            logging.warning("No lights servers configured.")
             return b''
 
-        except json.JSONDecodeError:
-            logging.error(f"Invalid JSON received: {data}")
-            return b''  # Return empty bytes on error
-        except Exception as e:
-            logging.error(f"Error in transform_lights: {e}")
-            return b''  # Return empty bytes on error
+        # Use the lock to ensure thread safety when accessing shared variables
+        with lights_lock:
+            if received_id != last_received_id:
+                # New ID received; change the effect and color
+                last_received_id = received_id
+
+                # Select the next combination
+                combination = combination_list[current_combination_index]
+                fx = combination['fx']
+                color = combination['color']
+
+                # Update the combination index
+                current_combination_index = (current_combination_index + 1) % len(combination_list)
+
+                # Prepare the JSON payload for the WLED API
+                payload = {
+                    "on": True,
+                    "bri": 255,  # Maximum brightness
+                    "seg": [{
+                        "id": 0,
+                        "fx": fx,
+                        "sx": random.randint(0, 255),  # Effect speed
+                        "ix": random.randint(0, 255),  # Effect intensity
+                        "col": [
+                            [color[0], color[1], color[2]],  # Primary color
+                            [0, 0, 0],                        # Secondary color
+                            [0, 0, 0]                         # Tertiary color
+                        ]
+                    }]
+                }
+
+                # Log the selected effect and color
+                logging.info(f"Selected Effect ID: {fx}, Color RGB({color[0]}, {color[1]}, {color[2]})")
+
+                # Submit tasks to the thread pool for asynchronous execution
+                for wled_address in server_addresses:
+                    executor.submit(send_wled_request, wled_address, payload)
+            else:
+                logging.info(f"Received ID '{received_id}' is the same as the last one. No pattern change.")
+                # No action needed as the ID is the same
+
+        # Since we've handled the action, return empty bytes
+        return b''
+
+    except json.JSONDecodeError:
+        logging.error(f"Invalid JSON received: {data}")
+        return b''  # Return empty bytes on error
+    except Exception as e:
+        logging.error(f"Error in transform_lights: {e}")
+        return b''  # Return empty bytes on error
 
 # Mapping of transformation functions for each server type
 TRANSFORM_FUNCTIONS = {
@@ -372,14 +386,14 @@ def handle_client_connection(client_socket, client_address, server_config):
         logging.info(f"Received data from {client_address}: {data}")
 
         # Send a request to the health check URL
-        try:
-            hc_response = requests.get(HEALTHCHECK_URL, timeout=5)
-            if hc_response.status_code == 200:
-                logging.info("Successfully pinged health check URL.")
-            else:
-                logging.error(f"Health check URL responded with status code {hc_response.status_code}")
-        except Exception as e:
-            logging.error(f"Error sending health check ping: {e}")
+        # try:
+        #     hc_response = requests.get(HEALTHCHECK_URL, timeout=5)
+        #     if hc_response.status_code == 200:
+        #         logging.info("Successfully pinged health check URL.")
+        #     else:
+        #         logging.error(f"Health check URL responded with status code {hc_response.status_code}")
+        # except Exception as e:
+        #     logging.error(f"Error sending health check ping: {e}")
 
         # Check if the data is an HTTP request
         if data.startswith(b'GET') or data.startswith(b'POST') or data.startswith(b'PUT') or data.startswith(b'DELETE'):
@@ -443,7 +457,12 @@ def start_server():
     # Set SO_REUSEADDR option to reuse the socket
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-    server_socket.bind((LISTEN_HOST, LISTEN_PORT))
+    try:
+        server_socket.bind((LISTEN_HOST, LISTEN_PORT))
+    except Exception as e:
+        logging.error(f"Failed to bind to {LISTEN_HOST}:{LISTEN_PORT}: {e}")
+        sys.exit(1)
+
     server_socket.listen(5)
     logging.info(f"Server listening on {LISTEN_HOST}:{LISTEN_PORT}")
 
