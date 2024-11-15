@@ -179,7 +179,8 @@ def transform_video(data, server_addresses):
         # Construct the full URL for each video server
         for server_info in server_addresses:
             try:
-                url = f"http://192.168.0.212:8002"  # FUCK IT!!!!
+                server_host, server_port = server_info.split(":")
+                url = f"http://{server_host}:{server_port}"
 
                 # Send the POST request using 'requests'
                 response = requests.post(
