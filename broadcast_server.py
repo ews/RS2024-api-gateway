@@ -123,7 +123,7 @@ def parse_http_request(data, client_socket):
 
 
 # Transformation functions for each type
-def transform_audio(data):
+def transform_music(data):
     try:
         # Parse the JSON input
         input_data = json.loads(data.decode("utf-8"))
@@ -138,7 +138,7 @@ def transform_audio(data):
 
         # Extract role and map to event
         role = input_data.get("role")
-        event_name = role_event_mapping.get(role, ":unknown-event")
+        event_name = role_event_mapping.get(role, ":location")
 
         # Handle arguments
         event_args = []
@@ -406,7 +406,7 @@ def transform_lights(data, server_addresses):
 
 # Mapping of transformation functions for each server type
 TRANSFORM_FUNCTIONS = {
-    "audio": transform_audio,
+    "music": transform_music,
     "video": transform_video,
     "lights": transform_lights,
 }
