@@ -152,8 +152,44 @@ def transform_audio(data):
         return data
 
 def transform_video(data):
-    # Example transformation: simply return the data as is
-    return data
+    """
+    Transform the input data and send an HTTP POST request to the video servers
+    using the 'requests' library with proper headers and payload.
+    """
+    try:
+        # Parse the JSON input
+        input_data = json.loads(data.decode('utf-8'))
+
+        endpoint = ""
+        headers = {
+            "Content-Type": "application/json"
+        }
+
+        # Construct the full URL for each video server
+        for server_info in server_addresses:
+            try:
+                url = f"http://192.168.0.212:8002"  #FUCK IT!!!!
+
+                # Send the POST request using 'requests'
+                response = requests.post(url, headers=headers, json=input_data, timeout=5)
+
+                # Raise an exception for bad status codes
+                response.raise_for_status()
+
+                logging.info(f"Successfully sent data to video server {server_host}:{server_port}. Response: {response.status_code}")
+            except requests.exceptions.RequestException as e:
+                logging.error(f"Error sending data to video server {server_info}: {e}")
+
+        # Since the action is complete, return an empty byte string
+        return b''
+
+    except json.JSONDecodeError:
+        logging.error(f"Invalid JSON received for video server: {data}")
+        return b''
+    except Exception as e:
+        logging.error(f"Error in transform_video: {e}")
+        return b''
+
 
 def fetch_available_effects(server_addresses):
     """
