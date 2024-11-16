@@ -155,7 +155,6 @@ def transform_music(data, server_addresses):
         else:
             clojure_data = f"[{event_name}]"
         logging.info(f"Sending this to Neils event: {clojure_data.encode('utf-8')}")
-
         # Encode the string into bytes
         return clojure_data.encode("utf-8")
 
@@ -353,8 +352,8 @@ def fetch_available_effects(server_addresses):
 
         logging.info("Generated 60 color-effect combinations.")
 
-    except json.JSONDecodeError:
-        logging.error(f"Invalid JSON received: {data}")
+    except json.JSONDecodeError as e:
+        logging.error(f"Invalid JSON received: {e}")
         return b""  # Return empty bytes on error
     except Exception as e:
         logging.error(f"Error in transform_lights: {e}")
@@ -493,12 +492,11 @@ def handle_client_connection(client_socket, client_address, server_config):
             try:
                 server_addresses = server_config.get(server_type, [])
                 # Transform the data using the appropriate function
-                transformed_data = transform_func(message_content, server_addresses)
                 # Log the transformed data
+                transformed_data = transform_func(message_content, server_addresses)
                 logging.info(
                     f"Transformed data for type '{server_type}': {transformed_data}"
                 )
-
                 # If the transformed data is empty, skip sending
                 if not transformed_data:
                     continue
